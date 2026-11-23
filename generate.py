@@ -18,17 +18,25 @@ def pick_working_chat_model() -> str:
     models = client.models.list().data
     candidates = [m.id for m in models if getattr(m, "id", None)]
 
-    # 排除語音、TTS、ASR、Guard 類模型，避免挑到非一般對話/生成模型
-    skip_keywords = ("whisper", "orpheus", "guard", "safeguard", "prompt-guard", "tts")
+    # 排除語音、TTS、ASR、Guard 與上下文較小的 7b/8b/9b 類模型
+    skip_keywords = (
+        "whisper",
+        "orpheus",
+        "guard",
+        "safeguard",
+        "prompt-guard",
+        "tts",
+        "allam",
+    )
     filtered = [m for m in candidates if not any(k in m.lower() for k in skip_keywords)]
 
     preferred = [
         "llama-3.3-70b-versatile",
-        "llama-3.1-8b-instant",
         "meta-llama/llama-4-scout-17b-16e-instruct",
         "meta-llama/llama-4-maverick-17b-128e-instruct",
         "qwen/qwen3-32b",
         "moonshotai/kimi-k2-instruct",
+        "llama-3.1-8b-instant",
         "gemma2-9b-it",
     ]
 
@@ -54,18 +62,35 @@ log(f"[Init] 已選定可用模型: {ACTIVE_MODEL}")
 
 
 def ask_llm(prompt: str, model: str = ACTIVE_MODEL, temp: float = 0.3) -> str:
-    resp = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=temp,
-    )
-    return resp.choices[0].message.content or ""
+    current_prompt = prompt
+    for _ in range(3):
+        try:
+            resp = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": current_prompt}],
+                temperature=temp,
+            )
+            return resp.choices[0].message.content or ""
+        except Exception as e:
+            err_msg = str(e).lower()
+            if "reduce the length" in err_msg or "too large" in err_msg or "tokens" in err_msg:
+                # 若超過上下文長度，將 prompt 縮減為 60% 後重試
+                cut_len = max(1500, int(len(current_prompt) * 0.6))
+                log(f"[Length Guard] 訊息過長，自動縮減至 {cut_len} 字元後重試...")
+                current_prompt = current_prompt[:cut_len] + "\n\n[內容已截斷以符合長度限制]"
+            else:
+                raise
+    raise RuntimeError("多次縮減長度後仍無法完成請求")
 
 
 with open("wiki.md", "r", encoding="utf-8") as f:
     wiki_md = f.read()
 
-log("[Node 0] 已讀取 wiki.md 知識庫")
+if len(wiki_md) > 4500:
+    wiki_md = wiki_md[:4500]
+    log("[Node 0] 已讀取 wiki.md 知識庫（已控制在 4500 字元內以符合模型上下文）")
+else:
+    log("[Node 0] 已讀取 wiki.md 知識庫")
 
 # ------------------------------------------------
 # Loop 1：生成教學大綱 + Check 1（內容範圍與初學者適配檢查）
