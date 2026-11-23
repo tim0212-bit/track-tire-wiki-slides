@@ -14,26 +14,43 @@ def log(msg: str):
     logs.append(msg)
 
 
-def pick_available_model() -> str:
+def pick_working_chat_model() -> str:
     models = client.models.list().data
-    model_ids = [m.id for m in models if getattr(m, "id", None)]
+    candidates = [m.id for m in models if getattr(m, "id", None)]
+
+    # 排除語音、TTS、ASR、Guard 類模型，避免挑到非一般對話/生成模型
+    skip_keywords = ("whisper", "orpheus", "guard", "safeguard", "prompt-guard", "tts")
+    filtered = [m for m in candidates if not any(k in m.lower() for k in skip_keywords)]
+
     preferred = [
         "llama-3.3-70b-versatile",
         "llama-3.1-8b-instant",
-        "moonshotai/kimi-k2-instruct",
+        "meta-llama/llama-4-scout-17b-16e-instruct",
+        "meta-llama/llama-4-maverick-17b-128e-instruct",
         "qwen/qwen3-32b",
+        "moonshotai/kimi-k2-instruct",
         "gemma2-9b-it",
     ]
-    for p in preferred:
-        if p in model_ids:
-            return p
-    if not model_ids:
-        raise RuntimeError("Groq API 未回傳任何可用模型")
-    return model_ids[0]
+
+    ordered = [m for m in preferred if m in filtered] + [m for m in filtered if m not in preferred]
+
+    for model_id in ordered:
+        try:
+            client.chat.completions.create(
+                model=model_id,
+                messages=[{"role": "user", "content": "ping"}],
+                max_tokens=5,
+                temperature=0,
+            )
+            return model_id
+        except Exception as e:
+            log(f"[Model Probe] 跳過 {model_id}: {e}")
+
+    raise RuntimeError("找不到任何可直接呼叫的 Groq 文字模型")
 
 
-ACTIVE_MODEL = pick_available_model()
-log(f"[Init] 使用可用模型: {ACTIVE_MODEL}")
+ACTIVE_MODEL = pick_working_chat_model()
+log(f"[Init] 已選定可用模型: {ACTIVE_MODEL}")
 
 
 def ask_llm(prompt: str, model: str = ACTIVE_MODEL, temp: float = 0.3) -> str:
