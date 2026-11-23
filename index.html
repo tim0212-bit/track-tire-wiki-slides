@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>賽道胎壓與工作溫度基礎</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2330;
+    --ink:#e6edf3; --muted:#8b949e; --line:#2b3441;
+    --accent:#ff6a3d; --accent2:#38bdf8; --good:#3fb950; --warn:#e3b341;
+    --mono:ui-monospace,"SF Mono","Cascadia Code",Consolas,monospace;
+    --sans:"PingFang TC","Microsoft JhengHei","Noto Sans TC",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:var(--bg);color:var(--ink);font-family:var(--sans);
+    overflow:hidden;-webkit-font-smoothing:antialiased;
+  }
+  /* 背景層 */
+  .bg{position:fixed;inset:0;z-index:0;pointer-events:none}
+  .bg::before{
+    content:"";position:absolute;inset:0;
+    background:
+      radial-gradient(1200px 600px at 78% -10%,rgba(255,106,61,.14),transparent 60%),
+      radial-gradient(900px 500px at 10% 110%,rgba(56,189,248,.12),transparent 60%);
+  }
+  .bg::after{
+    content:"";position:absolute;inset:0;opacity:.5;
+    background-image:
+      linear-gradient(var(--line) 1px,transparent 1px),
+      linear-gradient(90deg,var(--line) 1px,transparent 1px);
+    background-size:44px 44px;
+    -webkit-mask-image:radial-gradient(circle at 50% 45%,#000 30%,transparent 85%);
+            mask-image:radial-gradient(circle at 50% 45%,#000 30%,transparent 85%);
+  }
+  .scan{position:fixed;left:0;right:0;height:2px;z-index:1;pointer-events:none;
+    background:linear-gradient(90deg,transparent,rgba(56,189,248,.5),transparent);
+    animation:scan 7s linear infinite}
+  @keyframes scan{0%{top:-2px}100%{top:100%}}
+
+  /* 頂部 HUD */
+  .hud{position:fixed;top:0;left:0;right:0;z-index:5;
+    display:flex;align-items:center;justify-content:space-between;
+    padding:14px 26px;font-family:var(--mono);font-size:13px;letter-spacing:.06em;
+    color:var(--muted);border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg,rgba(13,17,23,.9),rgba(13,17,23,0))}
+  .hud .brand{color:var(--ink);font-weight:700}
+  .hud .brand b{color:var(--accent)}
+  .hud .live{display:flex;align-items:center;gap:8px}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--good);
+    box
+</body>
+</html>
