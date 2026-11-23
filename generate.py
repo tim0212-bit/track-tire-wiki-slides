@@ -14,7 +14,29 @@ def log(msg: str):
     logs.append(msg)
 
 
-def ask_llm(prompt: str, model: str = "llama-3.3-70b-versatile", temp: float = 0.3) -> str:
+def pick_available_model() -> str:
+    models = client.models.list().data
+    model_ids = [m.id for m in models if getattr(m, "id", None)]
+    preferred = [
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+        "moonshotai/kimi-k2-instruct",
+        "qwen/qwen3-32b",
+        "gemma2-9b-it",
+    ]
+    for p in preferred:
+        if p in model_ids:
+            return p
+    if not model_ids:
+        raise RuntimeError("Groq API 未回傳任何可用模型")
+    return model_ids[0]
+
+
+ACTIVE_MODEL = pick_available_model()
+log(f"[Init] 使用可用模型: {ACTIVE_MODEL}")
+
+
+def ask_llm(prompt: str, model: str = ACTIVE_MODEL, temp: float = 0.3) -> str:
     resp = client.chat.completions.create(
         model=model,
         messages=[{"role": "user", "content": prompt}],
@@ -62,7 +84,7 @@ Wiki 內容：
 Wiki：
 {wiki_md}
 """,
-        model="llama-3.1-8b-instant",
+        model=ACTIVE_MODEL,
         temp=0.1,
     ).strip()
 
@@ -95,7 +117,7 @@ for attempt in range(1, 4):
 
 前次結構檢查回饋：{html_feedback}
 """,
-        model="llama-3.3-70b-versatile",
+        model=ACTIVE_MODEL,
         temp=0.3,
     )
 
