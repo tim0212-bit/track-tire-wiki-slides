@@ -1,4 +1,5 @@
 import os
+import time
 from groq import Groq
 
 api_key = os.environ.get("GROQ_API_KEY")
@@ -18,7 +19,6 @@ def pick_working_chat_model() -> str:
     models = client.models.list().data
     candidates = [m.id for m in models if getattr(m, "id", None)]
 
-    # 排除語音、TTS、ASR、Guard 與上下文較小的 7b/8b/9b 類模型
     skip_keywords = (
         "whisper",
         "orpheus",
@@ -31,10 +31,10 @@ def pick_working_chat_model() -> str:
     filtered = [m for m in candidates if not any(k in m.lower() for k in skip_keywords)]
 
     preferred = [
+        "qwen/qwen3-32b",
         "llama-3.3-70b-versatile",
         "meta-llama/llama-4-scout-17b-16e-instruct",
         "meta-llama/llama-4-maverick-17b-128e-instruct",
-        "qwen/qwen3-32b",
         "moonshotai/kimi-k2-instruct",
         "llama-3.1-8b-instant",
         "gemma2-9b-it",
@@ -63,7 +63,7 @@ log(f"[Init] 已選定可用模型: {ACTIVE_MODEL}")
 
 def ask_llm(prompt: str, model: str = ACTIVE_MODEL, temp: float = 0.3) -> str:
     current_prompt = prompt
-    for _ in range(3):
+    for attempt in range(1, 5):
         try:
             resp = client.chat.completions.create(
                 model=model,
@@ -73,22 +73,20 @@ def ask_llm(prompt: str, model: str = ACTIVE_MODEL, temp: float = 0.3) -> str:
             return resp.choices[0].message.content or ""
         except Exception as e:
             err_msg = str(e).lower()
+            log(f"[LLM Retry {attempt}] 呼叫發生狀況: {e}")
             if "reduce the length" in err_msg or "too large" in err_msg or "tokens" in err_msg:
-                # 若超過上下文長度，將 prompt 縮減為 60% 後重試
-                cut_len = max(1500, int(len(current_prompt) * 0.6))
-                log(f"[Length Guard] 訊息過長，自動縮減至 {cut_len} 字元後重試...")
-                current_prompt = current_prompt[:cut_len] + "\n\n[內容已截斷以符合長度限制]"
-            else:
-                raise
-    raise RuntimeError("多次縮減長度後仍無法完成請求")
+                cut_len = max(1200, int(len(current_prompt) * 0.65))
+                current_prompt = current_prompt[:cut_len] + "\n\n[已縮短以符合長度限制]"
+            time.sleep(2 * attempt)
+    raise RuntimeError("多次重試後仍無法完成 LLM 請求")
 
 
 with open("wiki.md", "r", encoding="utf-8") as f:
     wiki_md = f.read()
 
-if len(wiki_md) > 4500:
-    wiki_md = wiki_md[:4500]
-    log("[Node 0] 已讀取 wiki.md 知識庫（已控制在 4500 字元內以符合模型上下文）")
+if len(wiki_md) > 3500:
+    wiki_md = wiki_md[:3500]
+    log("[Node 0] 已讀取 wiki.md 知識庫（已控制在 3500 字元內以保留足夠上下文空間）")
 else:
     log("[Node 0] 已讀取 wiki.md 知識庫")
 
@@ -104,12 +102,12 @@ for attempt in range(1, 4):
 你是賽道教學助教。請「只依據」下方 Wiki 內容，為完全沒跑過賽道的新手設計一份 6 頁的《賽道胎壓與工作溫度基礎》教學簡報大綱。
 要求：
 1. 語氣親切、白話，讓零基礎新手看得懂。
-2. 不得加入 Wiki 未提及的進階專有名詞或數據。
+2. 不得加入 Wiki 未提及的進階專有名詞或數據，也不要自行捏造 Wiki 沒有的表格名稱。
 
 Wiki 內容：
 {wiki_md}
 
-前次審查回饋：{outline_feedback}
+前次審查回饋（精簡重點）：{outline_feedback[:400]}
 """)
 
     check1 = ask_llm(
@@ -118,22 +116,23 @@ Wiki 內容：
 1. 是否 100% 基於提供的 Wiki，沒有自行加入 Wiki 以外的專有名詞或數據？
 2. 是否適合完全沒跑過賽道的新手理解？
 
-若完全通過，只回覆「PASS」；若有問題，請回覆「FAIL: 具體原因」。
+請精簡作答（不超過 150 字）：若通過回覆「PASS」；若未通過，回覆「FAIL: 原因」。
 
 大綱：
-{outline}
+{outline[:2000]}
 
 Wiki：
-{wiki_md}
+{wiki_md[:2500]}
 """,
         model=ACTIVE_MODEL,
         temp=0.1,
     ).strip()
 
-    log(f"[Check 1 Result] {check1}")
-    if "PASS" in check1:
+    short_check1 = check1.replace("\n", " ")[:300]
+    log(f"[Check 1 Result] {short_check1}")
+    if "PASS" in check1.upper() and "FAIL" not in check1.upper():
         break
-    outline_feedback = check1
+    outline_feedback = short_check1
 
 # ------------------------------------------------
 # Loop 2：生成 HTML 簡報 + Check 2（程式碼結構與互動功能檢查）
@@ -152,12 +151,12 @@ for attempt in range(1, 4):
 3. 只輸出純 HTML 程式碼，不要加 ```html 或 ``` 標記，也不要任何額外說明文字。
 
 教學大綱：
-{outline}
+{outline[:2000]}
 
 參考 Wiki：
-{wiki_md}
+{wiki_md[:2000]}
 
-前次結構檢查回饋：{html_feedback}
+前次結構檢查回饋：{html_feedback[:250]}
 """,
         model=ACTIVE_MODEL,
         temp=0.3,
@@ -176,8 +175,8 @@ for attempt in range(1, 4):
     slide_cnt = cleaned.lower().count('class="slide"')
     has_nav = ("arrowright" in cleaned.lower()) or ("keydown" in cleaned.lower())
 
+    html_out = cleaned
     if has_end and slide_cnt >= 5 and has_nav:
-        html_out = cleaned
         log(
             f"[Check 2 Result] PASS (slides={slide_cnt}, has_html_end={has_end}, has_nav={has_nav})"
         )
